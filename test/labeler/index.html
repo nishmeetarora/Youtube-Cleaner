@@ -1,0 +1,408 @@
+<title>Keep or Hide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: a triage desk. The video being judged sits up top with its two answers; the whole sample sits below as a contact sheet. */
+  :root {
+    --bg: #f2f4f6;
+    --surface: #ffffff;
+    --fg: #12161b;
+    --muted: #5a6573;
+    --line: #dbe0e6;
+    --accent: #2d55c8;
+    --keep: #1d7348;
+    --keep-tint: #e3f2ea;
+    --hide: #ad3434;
+    --hide-tint: #f8e6e6;
+    --warn-tint: #fbf1d9;
+    --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+    --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1115; --surface: #161a20; --fg: #e6eaef; --muted: #98a3b0; --line: #29303a; --accent: #8aa4ff;
+      --keep: #52c48d; --keep-tint: #15291f; --hide: #ff8080; --hide-tint: #2d1717; --warn-tint: #2c2412; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1115; --surface: #161a20; --fg: #e6eaef; --muted: #98a3b0; --line: #29303a; --accent: #8aa4ff;
+    --keep: #52c48d; --keep-tint: #15291f; --hide: #ff8080; --hide-tint: #2d1717; --warn-tint: #2c2412; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 24px 48px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 28px; }
+
+  header { display: grid; gap: 6px; }
+  h1 { font: 700 clamp(28px, 4vw, 40px)/1.05 var(--display); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+  .lede { margin: 0; color: var(--muted); max-width: 62ch; }
+
+  .progress { display: grid; gap: 8px; }
+  .counts { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 500 13px/1.4 var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+  .counts b { color: var(--fg); font-weight: 500; }
+  .counts .k { color: var(--keep); }
+  .counts .h { color: var(--hide); }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; display: flex; }
+  .bar span { display: block; height: 100%; transition: width .25s ease; }
+  .bar .k { background: var(--keep); }
+  .bar .h { background: var(--hide); }
+
+  .status { padding: 10px 14px; border-radius: 8px; background: var(--warn-tint); font-size: 14px; }
+
+  .desk { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .current { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .thumb { position: relative; aspect-ratio: 16 / 9; max-width: 100%; background: var(--line); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .dur { position: absolute; right: 8px; bottom: 8px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 0, 0, .78); color: #fff; font: 500 12px/1.5 var(--mono); }
+  .info { padding: 16px 18px 18px; display: grid; gap: 6px; }
+  .info h2 { font: 600 19px/1.3 var(--body); margin: 0; text-wrap: balance; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: 14px; }
+  .meta .ch { color: var(--fg); font-weight: 500; }
+  .open { color: var(--accent); font-size: 14px; text-decoration: none; justify-self: start; }
+  .open:hover { text-decoration: underline; }
+  .already { justify-self: start; font: 500 12px/1.4 var(--mono); padding: 2px 8px; border-radius: 999px; }
+
+  .side { display: grid; gap: 16px; }
+  .answers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .answer {
+    font: 600 18px/1.2 var(--body); padding: 18px 12px; border-radius: 12px; border: 2px solid; cursor: pointer;
+    display: grid; gap: 4px; justify-items: center; background: var(--surface);
+  }
+  .answer small { font: 400 12px/1.2 var(--mono); color: var(--muted); }
+  .answer.hide { color: var(--hide); border-color: var(--hide); }
+  .answer.keep { color: var(--keep); border-color: var(--keep); }
+  .answer.hide:hover, .answer.hide.on { background: var(--hide-tint); }
+  .answer.keep:hover, .answer.keep.on { background: var(--keep-tint); }
+  .minor { display: flex; gap: 10px; }
+  .minor button { flex: 1; font: 500 14px/1.2 var(--body); padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .minor button:hover { border-color: var(--muted); }
+  button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: default; }
+
+  .guide { font-size: 14px; color: var(--muted); display: grid; gap: 6px; }
+  .guide p { margin: 0; }
+  .guide b { color: var(--fg); font-weight: 600; }
+
+  .about { display: grid; gap: 6px; }
+  .about label { font-weight: 600; font-size: 14px; }
+  .about textarea { width: 100%; min-height: 96px; resize: vertical; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: 14px/1.5 var(--body); }
+  .about .note { font-size: 12px; color: var(--muted); min-height: 1.2em; }
+
+  .done { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 28px 22px; display: grid; gap: 8px; }
+  .done h2 { font: 700 24px/1.2 var(--display); margin: 0; }
+  .done p { margin: 0; color: var(--muted); }
+
+  .sheet-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .sheet-head h3 { font: 600 13px/1.3 var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; }
+  .sheet-head span { font-size: 13px; color: var(--muted); }
+  .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 14px; }
+  .card { text-align: left; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); color: var(--fg); cursor: pointer; display: grid; grid-template-rows: auto 1fr; font: inherit; }
+  .card .thumb { border-bottom: 1px solid var(--line); }
+  .card .t { padding: 8px 10px 10px; display: grid; gap: 4px; align-content: start; min-width: 0; }
+  .card .title { font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .card .who { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card.is-current { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .card.keep { border-color: var(--keep); }
+  .card.hide { border-color: var(--hide); }
+  .card.hide .thumb img { opacity: .45; }
+  .tag { justify-self: start; font: 500 11px/1.4 var(--mono); padding: 1px 7px; border-radius: 999px; }
+  .tag.keep, .already.keep { background: var(--keep-tint); color: var(--keep); }
+  .tag.hide, .already.hide { background: var(--hide-tint); color: var(--hide); }
+
+  @media (max-width: 760px) {
+    .desk { grid-template-columns: minmax(0, 1fr); }
+    .sheet { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  }
+  @media (prefers-reduced-motion: reduce) { .bar span { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Keep or Hide</h1>
+    <p class="lede">These videos came from your YouTube Home feed. For each one, decide whether you'd want it in your feed. Go with your gut: the test compares the filter's choices with yours.</p>
+  </header>
+
+  <section class="progress" aria-label="Progress">
+    <div class="counts" id="counts"><span>Loading videos…</span></div>
+    <div class="bar" aria-hidden="true"><span class="k" id="bar-k" style="width:0"></span><span class="h" id="bar-h" style="width:0"></span></div>
+  </section>
+
+  <div class="status" id="status" hidden></div>
+
+  <section class="desk">
+    <div id="stage">
+      <article class="current" id="current" hidden>
+        <div class="thumb"><img id="cur-img" alt=""><span class="dur" id="cur-dur" hidden></span></div>
+        <div class="info">
+          <h2 id="cur-title"></h2>
+          <div class="meta"><span class="ch" id="cur-ch"></span> <span id="cur-meta"></span></div>
+          <span class="already" id="cur-label" hidden></span>
+          <a class="open" id="cur-link" target="_blank" rel="noopener">Open on YouTube ↗</a>
+        </div>
+      </article>
+      <div class="done" id="done" hidden>
+        <h2>All labeled</h2>
+        <p>Go back to the chat and tell Claude you're done. You can still click any video below to change its label.</p>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="answers">
+        <button class="answer hide" id="btn-hide" type="button">Hide<small>H or ←</small></button>
+        <button class="answer keep" id="btn-keep" type="button">Keep<small>K or →</small></button>
+      </div>
+      <div class="minor">
+        <button id="btn-undo" type="button">Undo <span class="meta">(U)</span></button>
+        <button id="btn-skip" type="button">Skip <span class="meta">(S)</span></button>
+      </div>
+      <div class="guide">
+        <p><b>Keep</b> means you'd be glad to see it in your feed: you'd learn something, or it's worth your time.</p>
+        <p><b>Hide</b> means slop, bait, or nothing you'd miss. Judge the video, not the title. Open it if you're not sure.</p>
+      </div>
+      <div class="about">
+        <label for="about">What do you want from YouTube? (optional)</label>
+        <textarea id="about" placeholder="Topics you care about, creators you trust, what counts as a waste of time…"></textarea>
+        <span class="note" id="about-note"></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sheet-head"><h3>Whole sample</h3><span>Click a video to label or relabel it</span></div>
+    <div class="sheet" id="sheet"></div>
+  </section>
+</div>
+
+<script>
+  const state = { videos: [], labels: {}, current: -1, history: [], db: null, started: false, writes: {} };
+  const $ = (id) => document.getElementById(id);
+
+  function setStatus(text) {
+    $('status').textContent = text || '';
+    $('status').hidden = !text;
+  }
+
+  function nextUnlabeled(from) {
+    const n = state.videos.length;
+    for (let step = 0; step < n; step++) {
+      const i = (from + step) % n;
+      if (!state.labels[state.videos[i].id]) return i;
+    }
+    return -1;
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function thumb(v) {
+    const box = el('div', 'thumb');
+    const img = el('img');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.src = 'thumbs/' + v.id + '.jpg';
+    img.onerror = () => img.remove();
+    box.append(img);
+    if (v.duration) box.append(el('span', 'dur', v.duration));
+    return box;
+  }
+
+  function renderCounts() {
+    const total = state.videos.length;
+    const vals = state.videos.map((v) => state.labels[v.id]);
+    const keep = vals.filter((x) => x === 'keep').length;
+    const hide = vals.filter((x) => x === 'hide').length;
+    const c = $('counts');
+    c.replaceChildren();
+    const done = el('span');
+    done.append(el('b', null, String(keep + hide)), ` of ${total} labeled`);
+    c.append(done, el('span', 'k', `${keep} keep`), el('span', 'h', `${hide} hide`));
+    $('bar-k').style.width = total ? (keep / total) * 100 + '%' : '0';
+    $('bar-h').style.width = total ? (hide / total) * 100 + '%' : '0';
+  }
+
+  function renderCurrent() {
+    const v = state.videos[state.current];
+    $('current').hidden = !v;
+    $('done').hidden = !!v || !state.videos.length;
+    $('btn-hide').disabled = $('btn-keep').disabled = $('btn-skip').disabled = !v;
+    $('btn-undo').disabled = !state.history.length;
+    if (!v) return;
+    const img = $('cur-img');
+    img.hidden = false;
+    img.onerror = () => { img.hidden = true; };
+    img.src = 'thumbs/' + v.id + '.jpg';
+    $('cur-dur').textContent = v.duration || '';
+    $('cur-dur').hidden = !v.duration;
+    $('cur-title').textContent = v.title;
+    $('cur-ch').textContent = v.channel;
+    $('cur-meta').textContent = [v.views, v.age].filter(Boolean).map((s) => '· ' + s).join(' ');
+    $('cur-link').href = 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id);
+    const label = state.labels[v.id];
+    $('cur-label').hidden = !label;
+    $('cur-label').className = 'already ' + (label || '');
+    $('cur-label').textContent = label ? 'Labeled ' + label : '';
+    $('btn-keep').classList.toggle('on', label === 'keep');
+    $('btn-hide').classList.toggle('on', label === 'hide');
+  }
+
+  function renderSheet() {
+    const sheet = $('sheet');
+    if (sheet.children.length !== state.videos.length) {
+      sheet.replaceChildren(...state.videos.map((v, i) => {
+        const card = el('button', 'card');
+        card.type = 'button';
+        card.dataset.i = i;
+        const t = el('div', 't');
+        t.append(el('span', 'title', v.title), el('span', 'who', v.channel), el('span', 'tag'));
+        card.append(thumb(v), t);
+        card.addEventListener('click', () => {
+          state.current = i;
+          render();
+          window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+        });
+        return card;
+      }));
+    }
+    [...sheet.children].forEach((card, i) => {
+      const label = state.labels[state.videos[i].id];
+      card.className = 'card' + (label ? ' ' + label : '') + (i === state.current ? ' is-current' : '');
+      const tag = card.querySelector('.tag');
+      tag.className = 'tag' + (label ? ' ' + label : '');
+      tag.textContent = label || '';
+      tag.hidden = !label;
+      card.setAttribute('aria-label', `${state.videos[i].title}, ${label || 'not labeled'}`);
+    });
+  }
+
+  function render() {
+    renderCounts();
+    renderCurrent();
+    renderSheet();
+  }
+
+  // One write at a time per video: queue writes to the same document.
+  function save(id, value) {
+    if (!state.db) return;
+    const ref = state.db.doc('labels/' + id);
+    const prev = state.writes[id] || Promise.resolve();
+    state.writes[id] = prev.then(() => (value ? ref.set({ label: value, at: Date.now() }) : ref.delete())).catch((e) => {
+      setStatus(`Couldn't save the label for "${(state.videos.find((v) => v.id === id) || {}).title || id}": ${e.message || e.code}. Try again.`);
+    });
+  }
+
+  function label(value) {
+    const v = state.videos[state.current];
+    if (!v) return;
+    state.history.push({ id: v.id, prev: state.labels[v.id] || null });
+    state.labels[v.id] = value;
+    save(v.id, value);
+    state.current = nextUnlabeled(state.current + 1);
+    render();
+  }
+
+  function undo() {
+    const last = state.history.pop();
+    if (!last) return;
+    if (last.prev) state.labels[last.id] = last.prev;
+    else delete state.labels[last.id];
+    save(last.id, last.prev);
+    state.current = state.videos.findIndex((v) => v.id === last.id);
+    render();
+  }
+
+  function skip() {
+    if (state.current < 0) return;
+    const next = nextUnlabeled(state.current + 1);
+    state.current = next === -1 ? state.current : next;
+    render();
+  }
+
+  $('btn-keep').addEventListener('click', () => label('keep'));
+  $('btn-hide').addEventListener('click', () => label('hide'));
+  $('btn-undo').addEventListener('click', undo);
+  $('btn-skip').addEventListener('click', skip);
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest('textarea, input') || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'k' || e.key === 'ArrowRight') label('keep');
+    else if (k === 'h' || e.key === 'ArrowLeft') label('hide');
+    else if (k === 'u' || e.key === 'Backspace') undo();
+    else if (k === 's') skip();
+    else return;
+    e.preventDefault();
+  });
+
+  let aboutTimer = null;
+  $('about').addEventListener('input', () => {
+    clearTimeout(aboutTimer);
+    $('about-note').textContent = '';
+    aboutTimer = setTimeout(async () => {
+      if (!state.db) return;
+      try {
+        await state.db.doc('notes/about').set({ text: $('about').value.slice(0, 2000) });
+        $('about-note').textContent = 'Saved';
+      } catch (e) {
+        $('about-note').textContent = `Couldn't save: ${e.message || e.code}`;
+      }
+    }, 800);
+  });
+
+  async function connect() {
+    const db = window.claude?.use ? await window.claude.use('db') : null;
+    if (!db) {
+      setStatus("Labels can't be saved in this view. Open this page on claude.ai while signed in.");
+      return;
+    }
+    state.db = db;
+    const timer = setTimeout(() => setStatus("Can't reach your saved labels yet. Labels you add now may not save."), 10000);
+    db.collection('labels').onSnapshot((snap) => {
+      if (!snap.metadata.fromCache) {
+        clearTimeout(timer);
+        setStatus('');
+      }
+      const labels = {};
+      snap.docs.forEach((d) => {
+        const body = d.data();
+        if (body && (body.label === 'keep' || body.label === 'hide')) labels[d.id] = body.label;
+      });
+      state.labels = labels;
+      if (!state.started) {
+        state.started = true;
+        state.current = nextUnlabeled(0);
+      }
+      render();
+    }, (e) => {
+      clearTimeout(timer);
+      setStatus(`Saved labels stopped updating (${e.code}). Reload the page to reconnect.`);
+    });
+    try {
+      const about = await db.doc('notes/about').get();
+      if (about.exists && !$('about').value) $('about').value = about.data().text || '';
+    } catch (_) {}
+  }
+
+  (async () => {
+    try {
+      const res = await fetch('videos.json');
+      state.videos = await res.json();
+    } catch (e) {
+      setStatus("Couldn't load the video list. Reload the page.");
+      return;
+    }
+    state.current = nextUnlabeled(0);
+    render();
+    connect();
+  })();
+</script>

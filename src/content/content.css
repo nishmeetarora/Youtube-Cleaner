@@ -1,0 +1,71 @@
+/* Cards judged below the bar. The grid is a flex wrap, so the rest close up with no gap. */
+[data-ytc-hidden] {
+  display: none !important;
+}
+
+/* Cards waiting for a verdict stay blurred. html[data-ytc-blur] lists the feeds where that's on; the page hook sets it
+   before the first paint, and the content script marks each card data-ytc-ok once it's judged. */
+:is(
+    html[data-ytc-blur~="home"] ytd-browse[page-subtype="home"] ytd-rich-item-renderer,
+    html[data-ytc-blur~="watch"] ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer),
+    html[data-ytc-blur~="search"] ytd-search ytd-video-renderer
+  )
+  > * {
+  transition: filter 0.35s ease, opacity 0.35s ease;
+}
+:is(
+    html[data-ytc-blur~="home"] ytd-browse[page-subtype="home"] ytd-rich-item-renderer,
+    html[data-ytc-blur~="watch"] ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer),
+    html[data-ytc-blur~="search"] ytd-search ytd-video-renderer
+  ):not([data-ytc-ok], [data-ytc-hidden]) {
+  position: relative;
+}
+:is(
+    html[data-ytc-blur~="home"] ytd-browse[page-subtype="home"] ytd-rich-item-renderer,
+    html[data-ytc-blur~="watch"] ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer),
+    html[data-ytc-blur~="search"] ytd-search ytd-video-renderer
+  ):not([data-ytc-ok], [data-ytc-hidden])
+  > * {
+  filter: blur(12px) saturate(0.4);
+  opacity: 0.55;
+}
+:is(
+    html[data-ytc-blur~="home"] ytd-browse[page-subtype="home"] ytd-rich-item-renderer,
+    html[data-ytc-blur~="watch"] ytd-watch-next-secondary-results-renderer :is(yt-lockup-view-model, ytd-compact-video-renderer),
+    html[data-ytc-blur~="search"] ytd-search ytd-video-renderer
+  ):not([data-ytc-ok], [data-ytc-hidden])::after {
+  content: "Judging…";
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(15, 15, 15, 0.72);
+  color: #fff;
+  font: 500 12px/16px Roboto, Arial, sans-serif;
+  letter-spacing: 0.2px;
+  pointer-events: none;
+  animation: ytc-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ytc-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Shorts the page hook couldn't drop from the data (html[data-ytc-shorts] is set while "Hide Shorts" is on). */
+html[data-ytc-shorts] ytd-reel-shelf-renderer,
+html[data-ytc-shorts] ytd-rich-shelf-renderer[is-shorts],
+html[data-ytc-shorts] ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts]),
+html[data-ytc-shorts] ytd-rich-section-renderer:has(ytm-shorts-lockup-view-model),
+html[data-ytc-shorts] grid-shelf-view-model:has(ytm-shorts-lockup-view-model),
+html[data-ytc-shorts] ytd-rich-item-renderer:has(ytm-shorts-lockup-view-model),
+html[data-ytc-shorts] ytm-shorts-lockup-view-model-v2,
+html[data-ytc-shorts] ytm-shorts-lockup-view-model,
+html[data-ytc-shorts] ytd-video-renderer:has(a[href^="/shorts/"]),
+html[data-ytc-shorts] ytd-guide-entry-renderer:has(a[href^="/shorts"]),
+html[data-ytc-shorts] ytd-mini-guide-entry-renderer:has(a[href^="/shorts"]),
+html[data-ytc-shorts] yt-tab-shape[tab-title="Shorts"] {
+  display: none !important;
+}

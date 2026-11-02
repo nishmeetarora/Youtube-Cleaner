@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YouTube Cleaner settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <header class="page-head">
+        <img src="../icons/48.png" alt="" width="40" height="40" />
+        <div>
+          <h1>YouTube Cleaner</h1>
+          <p class="sub">Hides Shorts and filters bait and slop out of your feed. YouTube's recommendations stay; the junk goes. The quick controls live in YouTube's menu, under Home.</p>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2>Model</h2>
+        <div class="seg" role="radiogroup" aria-label="Provider" id="providerSeg"></div>
+
+        <label class="field">
+          <span class="label-row"><span>API key</span><a id="keyLink" target="_blank" rel="noopener">Get a key ↗</a></span>
+          <span class="key-row">
+            <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key" />
+            <button type="button" class="ghost" id="toggleKey">Show</button>
+          </span>
+          <span class="help" id="providerHelp"></span>
+        </label>
+
+        <label class="field">
+          <span class="label-row"><span>Model</span><span class="help" id="modelHint"></span></span>
+          <input id="model" type="text" list="modelList" autocomplete="off" spellcheck="false" />
+          <datalist id="modelList"></datalist>
+        </label>
+
+        <p class="help privacy">
+          <b>What gets sent:</b> to judge videos, their titles, channel names, lengths and view counts go to the provider above, using your key.
+          Videos that look doubtful from the title also send their description and tags. Nothing is sent to anyone else. Your key, settings and
+          scores stay on this computer.
+        </p>
+
+        <div class="actions">
+          <button type="button" class="primary" id="test">Test connection</button>
+          <span class="saved" id="savedNote" aria-live="polite"></span>
+        </div>
+        <div class="test-result" id="testResult" hidden></div>
+      </section>
+
+      <section class="card">
+        <h2>Filter</h2>
+        <label class="option check"><div><b>Filter my feed</b><p class="help">Off leaves YouTube as it is, apart from Shorts.</p></div><input type="checkbox" data-setting="enabled" /></label>
+        <div class="option">
+          <div>
+            <b>Strictness</b> · <span class="strictness-label" id="strictnessLabel"></span>
+            <p class="help" id="strictnessBlurb"></p>
+          </div>
+          <input type="range" id="strictness" min="1" max="5" step="1" aria-label="Strictness" />
+        </div>
+        <div class="option">
+          <div><b>Filter on</b><p class="help">Search results are what you asked for, so they're off by default.</p></div>
+          <div class="where">
+            <label><input type="checkbox" data-surface="home" /> Home</label>
+            <label><input type="checkbox" data-surface="watch" /> Up next sidebar</label>
+            <label><input type="checkbox" data-surface="search" /> Search</label>
+          </div>
+        </div>
+        <label class="option check"><div><b>Blur videos until judged</b><p class="help">Cards stay blurred for the few seconds it takes to judge them, so nothing jumps around after you've seen it.</p></div><input type="checkbox" data-setting="blurPending" /></label>
+        <label class="option check"><div><b>Always show music</b><p class="help">Tracks, live sets and mixes aren't judged as learning.</p></div><input type="checkbox" data-setting="allowMusic" /></label>
+        <label class="option check"><div><b>Hide Shorts</b><p class="help">Everywhere: Home, search, the sidebar, the menu and channel tabs. A Shorts link opens in the normal player.</p></div><input type="checkbox" data-setting="hideShorts" /></label>
+        <p class="help">Changes apply right away to open YouTube tabs, except Hide Shorts, which applies when you reload.</p>
+      </section>
+
+      <section class="card">
+        <h2>Recently hidden</h2>
+        <p class="help">The score is the video's signal out of 10. “Looked twice” means the description was checked before hiding it. Show lets one video through; Trust channel lets everything from that channel through.</p>
+        <ul class="log" id="log"></ul>
+        <div class="actions">
+          <span class="help" id="allowNote"></span>
+          <button type="button" class="ghost" id="clearAllow" hidden>Clear trusted</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Today</h2>
+        <div class="usage" id="usage"></div>
+        <p class="help" id="usageNote"></p>
+        <div class="actions">
+          <button type="button" class="ghost" id="clearCache">Clear cached scores</button>
+          <span class="help" id="cacheNote"></span>
+        </div>
+      </section>
+    </main>
+    <script src="../src/shared/core.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

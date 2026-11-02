@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings preview (dev)</title>
+    <!-- Dev-only: the real settings page with the fake chrome.* API, so it can be viewed in a normal tab. -->
+    <link rel="stylesheet" href="/options/options.css" />
+    <script src="/dev/chrome-shim.js"></script>
+  </head>
+  <body>
+    <script>
+      (async () => {
+        const html = await (await fetch('/options/options.html')).text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        doc.querySelectorAll('script').forEach((s) => s.remove());
+        document.body.innerHTML = doc.body.innerHTML.replaceAll('../icons/', '/icons/');
+        for (const src of ['/src/shared/core.js', '/options/options.js']) {
+          await new Promise((res) => {
+            const s = document.createElement('script');
+            s.src = src;
+            s.onload = res;
+            document.body.appendChild(s);
+          });
+        }
+        // ?test shows a filled-in connection test.
+        if (new URLSearchParams(location.search).has('test')) setTimeout(() => document.getElementById('test').click(), 300);
+      })();
+    </script>
+  </body>
+</html>

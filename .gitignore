@@ -1,0 +1,6 @@
+.env
+.DS_Store
+node_modules/
+test/data/
+dev/fixtures/
+.claude/settings.local.json
