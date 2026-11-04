@@ -35,7 +35,7 @@
       const id = `demovid${String(n).padStart(4, '0')}`;
       videos.push({ id, title, channel, duration, views: `${(n * 37) % 900}K`, age: `${n} days ago` });
       const card = document.createElement('ytd-rich-item-renderer');
-      card.innerHTML = `<div id="content"><a class="thumb" style="--h:${(n * 47) % 360}" href="/watch?v=${id}"><span class="dur"></span></a>
+      card.innerHTML = `<div id="content"><a href="/watch?v=${id}"><yt-thumbnail-view-model class="thumb" style="--h:${(n * 47) % 360}"><span class="dur"></span></yt-thumbnail-view-model></a>
         <div class="details"><span class="avatar"></span><div><h3><a href="/watch?v=${id}"></a></h3>
         <div class="metadata-row"><a></a></div><div class="metadata-row"><span></span></div></div></div></div>`;
       card.querySelector('.dur').textContent = duration;

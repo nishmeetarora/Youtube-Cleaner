@@ -96,7 +96,7 @@
         .map((s) => {
           const sc = s.score;
           const verdict = !sc ? 'missing' : YTC.decide(sc, settings).hide ? 'would hide' : sc.m ? 'music, kept' : 'kept';
-          const nums = sc ? `<b>signal ${sc.v}</b> · bait ${sc.b}<br>${verdict}` : 'missing';
+          const nums = sc ? `<b>IQ ${YTC.iqOf(sc.v)}</b> · ${esc(YTC.topicOf(sc.t).label)} · bait ${sc.b}<br>${verdict}` : 'missing';
           return `<tr><td>${esc(s.title)}<div class="help">${esc(s.channel)}${sc?.w ? ` · “${esc(sc.w)}”` : ''}</div></td><td class="num">${nums}</td></tr>`;
         })
         .join('');
@@ -125,23 +125,47 @@
       saveSettings();
     });
   }
-  $('strictness').addEventListener('input', (e) => {
-    settings.minSignal = Number(e.target.value);
-    renderStrictness();
+  $('minScore').addEventListener('input', (e) => {
+    settings.minScore = Number(e.target.value);
+    renderIq();
   });
-  $('strictness').addEventListener('change', saveSettings);
+  $('minScore').addEventListener('change', saveSettings);
 
-  function renderStrictness() {
-    const s = YTC.strictnessOf(settings.minSignal);
-    $('strictness').value = String(settings.minSignal);
-    $('strictnessLabel').textContent = s.label;
-    $('strictnessBlurb').textContent = `${s.blurb}. Hides videos scoring below ${s.min} of 10.`;
+  function renderIq() {
+    const min = settings.minScore;
+    $('minScore').value = String(min);
+    $('iqLabel').textContent = min === 0 ? 'any' : `${YTC.iqOf(min)} and up`;
+    $('iqBlurb').textContent = `${YTC.levelOf(min).blurb}.`;
+  }
+
+  // ---- Topics: neutral -> more -> less -> neutral ----
+  const NEXT_PREF = { neutral: 'more', more: 'less', less: 'neutral' };
+  const chips = {};
+  for (const t of YTC.TOPICS) {
+    const b = el('button', { type: 'button', className: 'chip' }, [el('span', { className: 'ic', textContent: t.icon }), el('span', { className: 'lbl', textContent: t.label })]);
+    b.addEventListener('click', () => {
+      settings.topics = Object.assign({}, settings.topics, { [t.key]: NEXT_PREF[YTC.prefOf(settings, t.key)] });
+      renderTopics();
+      saveSettings();
+    });
+    chips[t.key] = b;
+    $('topics').appendChild(b);
+  }
+
+  function renderTopics() {
+    for (const t of YTC.TOPICS) {
+      const pref = YTC.prefOf(settings, t.key);
+      chips[t.key].dataset.pref = pref;
+      chips[t.key].title = `${t.hint}\n${pref === 'more' ? 'More: IQ bar 16 lower' : pref === 'less' ? 'Less: always hidden' : 'Neutral'}`;
+      chips[t.key].setAttribute('aria-label', `${t.label}, ${pref}`);
+    }
   }
 
   function renderSettings() {
     for (const box of document.querySelectorAll('input[type="checkbox"][data-setting]')) box.checked = !!settings[box.dataset.setting];
     for (const box of document.querySelectorAll('input[type="checkbox"][data-surface]')) box.checked = !!settings.surfaces[box.dataset.surface];
-    renderStrictness();
+    renderIq();
+    renderTopics();
   }
 
   // ---- Recently hidden ----
@@ -162,7 +186,8 @@
     if (!entries.length) list.appendChild(el('li', { className: 'empty', textContent: 'Nothing hidden yet.' }));
     for (const e of entries) {
       const shown = allow.videos[e.id] || (e.channel && allow.channels[e.channel]);
-      const meta = [e.channel, e.duration, e.w && `“${e.w}”`, e.x ? 'looked twice' : '', ago(e.at)].filter(Boolean).join(' · ');
+      const why = e.r === 'topic' ? `${YTC.topicOf(e.t).label} is set to less` : e.w && `“${e.w}”`;
+      const meta = [e.channel, e.duration, e.t && e.r !== 'topic' ? YTC.topicOf(e.t).label : '', why, e.x ? 'looked twice' : '', ago(e.at)].filter(Boolean).join(' · ');
       const title = el('a', { className: 'title', href: `https://www.youtube.com/watch?v=${encodeURIComponent(e.id)}`, target: '_blank', rel: 'noopener', textContent: e.title });
       const buttons = el('div', { className: 'buttons' });
       if (shown) {
@@ -184,7 +209,7 @@
         }
       }
       list.appendChild(
-        el('li', null, [el('div', { className: 'score', textContent: String(e.v) }), el('div', { className: 'body' }, [title, el('div', { className: 'meta', textContent: meta })]), buttons])
+        el('li', null, [el('div', { className: 'score', textContent: String(YTC.iqOf(e.v)), title: `IQ ${YTC.iqOf(e.v)}` }), el('div', { className: 'body' }, [title, el('div', { className: 'meta', textContent: meta })]), buttons])
       );
     }
     const nv = Object.keys(allow.videos).length;

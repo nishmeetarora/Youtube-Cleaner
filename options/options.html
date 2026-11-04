@@ -12,7 +12,7 @@
         <img src="../icons/48.png" alt="" width="40" height="40" />
         <div>
           <h1>YouTube Cleaner</h1>
-          <p class="sub">Hides Shorts and filters bait and slop out of your feed. YouTube's recommendations stay; the junk goes. The quick controls live in YouTube's menu, under Home.</p>
+          <p class="sub">Hides Shorts and keeps your feed above the IQ you pick. YouTube's recommendations stay; what's below the bar goes. The quick controls live in YouTube's menu, under Home.</p>
         </div>
       </header>
 
@@ -37,7 +37,7 @@
 
         <p class="help privacy">
           <b>What gets sent:</b> to judge videos, their titles, channel names, lengths and view counts go to the provider above, using your key.
-          Videos that look doubtful from the title also send their description and tags. Nothing is sent to anyone else. Your key, settings and
+          Videos that land just under your IQ bar on their title also send their description and tags. Nothing is sent to anyone else. Your key, settings and
           scores stay on this computer.
         </p>
 
@@ -53,10 +53,18 @@
         <label class="option check"><div><b>Filter my feed</b><p class="help">Off leaves YouTube as it is, apart from Shorts.</p></div><input type="checkbox" data-setting="enabled" /></label>
         <div class="option">
           <div>
-            <b>Strictness</b> · <span class="strictness-label" id="strictnessLabel"></span>
-            <p class="help" id="strictnessBlurb"></p>
+            <b>Minimum IQ</b> · <span class="iq-label" id="iqLabel"></span>
+            <p class="help" id="iqBlurb"></p>
           </div>
-          <input type="range" id="strictness" min="1" max="5" step="1" aria-label="Strictness" />
+          <input type="range" id="minScore" min="0" max="10" step="1" list="iqStops" aria-label="Minimum IQ" />
+          <datalist id="iqStops"><option value="0"></option><option value="1"></option><option value="2"></option><option value="3"></option><option value="4"></option><option value="5"></option><option value="6"></option><option value="7"></option><option value="8"></option><option value="9"></option><option value="10"></option></datalist>
+        </div>
+        <div class="option topics-option">
+          <div>
+            <b>Topics</b>
+            <p class="help">Tap to cycle: <span class="more-word">more</span> lowers the IQ bar by 16 for that topic, <span class="less-word">less</span> hides it, then back to neutral.</p>
+            <div class="topics" id="topics"></div>
+          </div>
         </div>
         <div class="option">
           <div><b>Filter on</b><p class="help">Search results are what you asked for, so they're off by default.</p></div>
@@ -67,6 +75,8 @@
           </div>
         </div>
         <label class="option check"><div><b>Blur videos until judged</b><p class="help">Cards stay blurred for the few seconds it takes to judge them, so nothing jumps around after you've seen it.</p></div><input type="checkbox" data-setting="blurPending" /></label>
+        <label class="option check"><div><b>Give the panel the whole menu</b><p class="help">YouTube's left menu gets wider and keeps only Home and the panel; Subscriptions, You and Explore are hidden. Turn off to get them back.</p></div><input type="checkbox" data-setting="takeOverMenu" /></label>
+        <label class="option check"><div><b>Show IQ on thumbnails</b><p class="help">A small badge in each video's top-right corner. Blue means IQ 126 or more.</p></div><input type="checkbox" data-setting="showBadges" /></label>
         <label class="option check"><div><b>Always show music</b><p class="help">Tracks, live sets and mixes aren't judged as learning.</p></div><input type="checkbox" data-setting="allowMusic" /></label>
         <label class="option check"><div><b>Hide Shorts</b><p class="help">Everywhere: Home, search, the sidebar, the menu and channel tabs. A Shorts link opens in the normal player.</p></div><input type="checkbox" data-setting="hideShorts" /></label>
         <p class="help">Changes apply right away to open YouTube tabs, except Hide Shorts, which applies when you reload.</p>
@@ -74,7 +84,7 @@
 
       <section class="card">
         <h2>Recently hidden</h2>
-        <p class="help">The score is the video's signal out of 10. “Looked twice” means the description was checked before hiding it. Show lets one video through; Trust channel lets everything from that channel through.</p>
+        <p class="help">The number is the video's IQ. “Looked twice” means the description was checked before hiding it. Show lets one video through; Trust channel lets everything from that channel through.</p>
         <ul class="log" id="log"></ul>
         <div class="actions">
           <span class="help" id="allowNote"></span>

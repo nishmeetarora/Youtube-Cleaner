@@ -167,6 +167,16 @@ function homeFixture() {
     assert.equal(page({ pathname: '/', config: { blur: [] } }).attrs['data-ytc-blur'], undefined);
   });
 
+  await test('hook: the panel takes over the menu before the first paint, and lets go when told', async () => {
+    assert.equal(page({ pathname: '/', config: { menu: true } }).attrs['data-ytc-menu'], '');
+    assert.equal(page({ pathname: '/', config: { menu: false } }).attrs['data-ytc-menu'], undefined);
+    assert.equal(page({ pathname: '/', config: {} }).attrs['data-ytc-menu'], '', 'on by default');
+    const { win, attrs } = page({ pathname: '/', config: { menu: true } });
+    win.postMessage({ __ytc: 'content', kind: 'config', config: { menu: false } });
+    await tick();
+    assert.equal(attrs['data-ytc-menu'], undefined);
+  });
+
   await test('hook: settings from the content script switch the blur off', async () => {
     const { win, attrs } = page({ pathname: '/', config: saved });
     win.postMessage({ __ytc: 'content', kind: 'config', config: { blur: [] } });
@@ -248,29 +258,77 @@ function homeFixture() {
 
   // ---------------- Core and prompt ----------------
 
-  await test('decide: threshold, music and the allow list', () => {
-    const s = core.mergeSettings(null);
+  await test('decide: the IQ bar, music and the allow list', () => {
+    const s = Object.assign(core.mergeSettings(null), { minScore: 5, topics: {} });
     const allow = core.mergeAllow(null);
     const v = { id: 'aaaaaaaaaaa', channel: 'Some Channel' };
-    assert.equal(core.decide({ v: 2, m: 0 }, s, v, allow).hide, true);
-    assert.equal(core.decide({ v: 3, m: 0 }, s, v, allow).hide, false);
-    assert.equal(core.decide({ v: 1, m: 1 }, s, v, allow).hide, false);
-    assert.equal(core.decide({ v: 1, m: 1 }, Object.assign({}, s, { allowMusic: false }), v, allow).hide, true);
+    assert.equal(core.decide({ v: 4, t: 'science', m: 0 }, s, v, allow).hide, true);
+    assert.equal(core.decide({ v: 4, t: 'science', m: 0 }, s, v, allow).reason, 'low');
+    assert.equal(core.decide({ v: 5, t: 'science', m: 0 }, s, v, allow).hide, false);
+    assert.equal(core.decide({ v: 1, t: 'music', m: 1 }, s, v, allow).hide, false);
+    assert.equal(core.decide({ v: 1, t: 'music', m: 1 }, Object.assign({}, s, { allowMusic: false }), v, allow).hide, true);
     assert.equal(core.decide({ v: 1, m: 0 }, s, v, { videos: { aaaaaaaaaaa: 1 }, channels: {} }).hide, false);
     assert.equal(core.decide({ v: 1, m: 0 }, s, v, { videos: {}, channels: { 'Some Channel': 1 } }).hide, false);
     assert.equal(core.decide(undefined, s, v, allow).hide, false);
+    assert.equal(core.decide({ v: 0, m: 0 }, Object.assign({}, s, { minScore: 0 }), v, allow).hide, false, 'IQ 70 keeps everything');
   });
 
-  await test('settings: strictness is clamped and surfaces merge', () => {
-    assert.equal(core.mergeSettings({ minSignal: 9 }).minSignal, 5);
-    assert.deepEqual(core.mergeSettings({ surfaces: { search: true } }).surfaces, { home: true, watch: true, search: true });
+  await test('decide: topics marked more get a lower bar, topics marked less always go', () => {
+    const s = Object.assign(core.mergeSettings(null), { minScore: 6, topics: { history: 'more', sports: 'less', music: 'less' } });
+    const allow = core.mergeAllow(null);
+    assert.equal(core.decide({ v: 4, t: 'history', m: 0 }, s, {}, allow).hide, false, 'history bar is 4');
+    assert.equal(core.decide({ v: 3, t: 'history', m: 0 }, s, {}, allow).hide, true);
+    assert.equal(core.decide({ v: 5, t: 'science', m: 0 }, s, {}, allow).hide, true);
+    assert.deepEqual(core.decide({ v: 9, t: 'sports', m: 0 }, s, {}, allow), { hide: true, reason: 'topic' });
+    assert.equal(core.decide({ v: 2, t: 'music', m: 1 }, s, {}, allow).reason, 'topic', 'music marked less beats the music exemption');
+    assert.equal(core.decide({ v: 9, t: 'sports', m: 0 }, s, { id: 'x' }, { videos: { x: 1 }, channels: {} }).hide, false, 'a shown video stays shown');
+    assert.equal(core.iqOf(0), 70);
+    assert.equal(core.iqOf(5), 110);
+    assert.equal(core.iqOf(10), 150);
+  });
+
+  await test('second look: only title-only scores just under the bar', () => {
+    const s = Object.assign(core.mergeSettings(null), { minScore: 6, topics: { ai: 'more' } });
+    assert.equal(core.wantsSecondLook({ v: 5, t: 'tech', m: 0, x: 0 }, s), true);
+    assert.equal(core.wantsSecondLook({ v: 3, t: 'tech', m: 0, x: 0 }, s), true);
+    assert.equal(core.wantsSecondLook({ v: 2, t: 'tech', m: 0, x: 0 }, s), false, 'far under the bar');
+    assert.equal(core.wantsSecondLook({ v: 6, t: 'tech', m: 0, x: 0 }, s), false, 'already through');
+    assert.equal(core.wantsSecondLook({ v: 5, t: 'tech', m: 0, x: 1 }, s), false, 'already looked twice');
+    assert.equal(core.wantsSecondLook({ v: 5, t: 'tech', m: 0, x: 2 }, s), false, 'no details to look at');
+    assert.equal(core.wantsSecondLook({ v: 3, t: 'music', m: 1, x: 0 }, s), false);
+    assert.equal(core.wantsSecondLook({ v: 4, t: 'ai', m: 0, x: 0 }, s), false, 'ai bar is 4');
+    assert.equal(core.wantsSecondLook({ v: 1, t: 'ai', m: 0, x: 0 }, s), true);
+  });
+
+  await test('settings: v1 strictness gives way to the IQ default, the bar is clamped, topics are cleaned', () => {
+    const old = core.mergeSettings({ v: 1, minSignal: 3, surfaces: { search: true } });
+    assert.equal(old.minScore, 5);
+    assert.equal('minSignal' in old, false);
+    assert.deepEqual(old.surfaces, { home: true, watch: true, search: true });
+    assert.deepEqual(old.topics, { drama: 'less' });
+    assert.equal(old.takeOverMenu, true);
+    assert.equal(core.mergeSettings({ v: 2, takeOverMenu: false }).takeOverMenu, false);
+    assert.equal(core.mergeSettings({ v: 2, minScore: 14 }).minScore, 10);
+    assert.equal(core.mergeSettings({ v: 2, minScore: 7 }).minScore, 7);
+    const t = core.mergeSettings({ v: 2, topics: { drama: 'neutral', science: 'more', bogus: 'more', ai: 'lots' } }).topics;
+    assert.deepEqual(t, { drama: 'neutral', science: 'more' });
+  });
+
+  await test('prompt: lists every topic and parses topics, aliases and depth', () => {
+    const [system] = prompt.buildMessages([{ id: 'a', title: 'T', channel: 'C' }]);
+    for (const k of core.TOPIC_KEYS) assert.ok(system.content.includes(`${k} = `), k);
+    const vids = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    const out = prompt.parseScores('{"r":[{"i":0,"t":"Philosophy","v":8,"b":1,"m":0,"w":"deep"},{"i":1,"t":"science","v":12,"b":0,"m":0,"w":"x"},{"i":2,"t":"weird","v":3,"b":5,"m":0,"w":"y"}]}', vids);
+    assert.equal(out.a.t, 'ideas');
+    assert.equal(out.b.v, 10);
+    assert.equal(out.c.t, 'other');
   });
 
   await test('prompt: second-look videos carry category, tags, chapters and description', () => {
     const player = fixture('player');
     const details = { description: '0:00 Intro\n1:00 Kant\n2:00 Hume\nA ranked list https://x.y', tags: player.videoDetails.keywords, category: 'Education' };
     const [, user] = prompt.buildMessages([{ id: 'ZK3O402wf1c', title: 'T', channel: 'C', duration: '4:57', views: '1.2M', age: '1d ago', details }]);
-    assert.match(user.content, /looked doubtful/);
+    assert.match(user.content, /just under the viewer's level/);
     assert.match(user.content, /category: Education · tags: /);
     assert.match(user.content, /chapters: Intro \| Kant \| Hume/);
     assert.match(user.content, /description: A ranked list \[link\]/);
@@ -279,18 +337,18 @@ function homeFixture() {
 
   await test('prompt: replies are parsed by position, truncated replies keep complete entries', () => {
     const vids = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
-    assert.deepEqual(prompt.parseScores('{"r":[{"i":0,"v":7,"b":2,"m":0,"w":"ok"},{"i":2,"v":1,"b":9,"m":0,"w":"drama"}]}', vids), {
-      a: { v: 7, b: 2, m: 0, w: 'ok' },
-      c: { v: 1, b: 9, m: 0, w: 'drama' },
+    assert.deepEqual(prompt.parseScores('{"r":[{"i":0,"t":"ai","v":7,"b":2,"m":0,"w":"ok"},{"i":2,"t":"drama","v":1,"b":9,"m":0,"w":"drama"}]}', vids), {
+      a: { v: 7, t: 'ai', b: 2, m: 0, w: 'ok' },
+      c: { v: 1, t: 'drama', b: 9, m: 0, w: 'drama' },
     });
-    const cut = prompt.parseScores('```json\n{"r":[{"i":0,"v":5,"b":1,"m":1,"w":"song"},{"i":1,"v":', vids);
+    const cut = prompt.parseScores('```json\n{"r":[{"i":0,"t":"music","v":2,"b":1,"m":1,"w":"song"},{"i":1,"v":', vids);
     assert.deepEqual(Object.keys(cut), ['a']);
     assert.equal(cut.a.m, 1);
   });
 
   // ---------------- Background worker in a sandbox ----------------
 
-  await test('background: batches, gives low scorers a second look with details, caches', async () => {
+  function background(opts) {
     const store = { 'ytc:llm': { provider: 'openrouter', keys: { openrouter: 'test-key' } } };
     const listeners = {};
     const tabMessages = [];
@@ -320,24 +378,18 @@ function homeFixture() {
           tabMessages.push({ tab, msg });
           if (msg.type === 'details') {
             const details = {};
-            for (const id of msg.ids) details[id] = { description: id === 'goodbait001' ? 'A careful two-hour lecture.' : 'Reacting to drama.', tags: [], category: 'Education' };
+            for (const id of msg.ids) if (!opts.noDetails?.includes(id)) details[id] = { description: opts.description(id), tags: [], category: 'Education' };
             return { details };
           }
         },
       },
     };
-    // Fake model: drama is slop either way; the baity good video scores low on its title and high with its description.
     async function fakeFetch(url, init) {
       const body = JSON.parse(init.body);
       const user = body.messages[1].content;
       llmCalls.push(user);
-      const second = /looked doubtful/.test(user);
-      const r = [...user.matchAll(/^\[(\d+)\] "([^"]+)"/gm)].map(([, i, title]) => {
-        if (/DRAMA/.test(title)) return { i: +i, v: 1, b: 9, m: 0, w: 'drama' };
-        if (/SHOCKING/.test(title)) return { i: +i, v: second ? 7 : 2, b: 8, m: 0, w: second ? 'real lecture' : 'baity title' };
-        if (/Official Audio/.test(title)) return { i: +i, v: 0, b: 0, m: 1, w: 'song' };
-        return { i: +i, v: 6, b: 1, m: 0, w: 'solid' };
-      });
+      const second = /just under the viewer's level/.test(user);
+      const r = [...user.matchAll(/^\[(\d+)\] "([^"]+)"/gm)].map(([, i, title]) => Object.assign({ i: +i }, opts.model(title, second)));
       return new Response(JSON.stringify({ model: body.model, choices: [{ message: { content: JSON.stringify({ r }) } }], usage: { prompt_tokens: 100, completion_tokens: 20 } }), {
         headers: { 'content-type': 'application/json' },
       });
@@ -351,45 +403,87 @@ function homeFixture() {
     };
     vm.createContext(ctx);
     vm.runInContext(fs.readFileSync(path.join(bgDir, 'service-worker.js'), 'utf8'), ctx);
+    const ask = (type, vs) => new Promise((resolve) => listeners.message({ type, videos: vs }, { tab: { id: 7 } }, resolve));
+    const delivered = () => Object.assign({}, ...tabMessages.filter((m) => m.msg.type === 'scores').map((m) => m.msg.scores));
+    return { store, listeners, tabMessages, llmCalls, ask, delivered };
+  }
 
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  await test('background: first pass scores every video at once with its topic, and caches it', async () => {
+    const bg = background({
+      description: () => '',
+      model: (title) => {
+        if (/DRAMA/.test(title)) return { t: 'drama', v: 1, b: 9, m: 0, w: 'drama' };
+        if (/Official Audio/.test(title)) return { t: 'music', v: 2, b: 0, m: 1, w: 'song' };
+        return { t: 'science', v: 6, b: 1, m: 0, w: 'solid' };
+      },
+    });
     const videos = [
       { id: 'drama000001', title: 'DRAMA: they did WHAT', channel: 'X' },
-      { id: 'goodbait001', title: 'SHOCKING truth about Kant', channel: 'Y' },
       { id: 'song0000001', title: 'Midnight (Official Audio)', channel: 'Z' },
       { id: 'solid000001', title: 'How transistors work', channel: 'W' },
     ];
-    const ask = (vs) => new Promise((resolve) => listeners.message({ type: 'score', videos: vs }, { tab: { id: 7 } }, resolve));
-    const first = await ask(videos);
+    const first = await bg.ask('score', videos);
     assert.equal(Object.keys(first.hits).length, 0);
-    await new Promise((r) => setTimeout(r, 600));
+    await wait(500);
+    assert.equal(bg.llmCalls.length, 1, 'one batch, no second look on its own');
+    const got = bg.delivered();
+    assert.deepEqual(Object.keys(got).sort(), ['drama000001', 'solid000001', 'song0000001']);
+    assert.equal(got.solid000001.t, 'science');
+    assert.equal(got.solid000001.x, 0);
+    const again = await bg.ask('score', videos);
+    assert.equal(Object.keys(again.hits).length, 3, 'all cached');
+    assert.equal(again.hits.drama000001.t, 'drama');
+    await wait(400);
+    assert.equal(bg.llmCalls.length, 1, 'no new calls');
+  });
 
-    assert.equal(llmCalls.length, 2, 'one first pass, one second look');
-    assert.match(llmCalls[1], /looked doubtful/);
-    assert.ok(llmCalls[1].includes('DRAMA') && llmCalls[1].includes('SHOCKING') && !llmCalls[1].includes('Official Audio'));
-    assert.deepEqual([...tabMessages.find((m) => m.msg.type === 'details').msg.ids].sort(), ['drama000001', 'goodbait001']);
+  await test('background: a recheck judges again with details, caches it, and answers from the cache after that', async () => {
+    const bg = background({
+      noDetails: ['nodetail001'],
+      description: (id) => (id === 'goodbait001' ? 'A careful two-hour lecture.' : 'Reacting to drama.'),
+      model: (title, second) => {
+        if (/SHOCKING/.test(title)) return { t: 'ideas', v: second ? 7 : 4, b: 8, m: 0, w: second ? 'real lecture' : 'baity title' };
+        return { t: 'tech', v: 4, b: 2, m: 0, w: 'light' };
+      },
+    });
+    const videos = [
+      { id: 'goodbait001', title: 'SHOCKING truth about Kant', channel: 'Y' },
+      { id: 'nodetail001', title: 'Some gadget', channel: 'V' },
+      { id: 'notcached01', title: 'Never scored', channel: 'U' },
+    ];
+    await bg.ask('score', videos.slice(0, 2));
+    await wait(500);
+    assert.equal(bg.delivered().goodbait001.v, 4);
+    const res = await bg.ask('recheck', videos);
+    assert.deepEqual([...res.queued].sort(), ['goodbait001', 'nodetail001'], 'a video with no first pass in the cache is not queued');
+    await wait(600);
+    assert.equal(bg.llmCalls.length, 2);
+    assert.match(bg.llmCalls[1], /just under the viewer's level/);
+    assert.ok(bg.llmCalls[1].includes('SHOCKING') && !bg.llmCalls[1].includes('Some gadget'), 'only videos with details go to the model');
+    const got = bg.delivered();
+    assert.equal(got.goodbait001.v, 7);
+    assert.equal(got.goodbait001.x, 1);
+    assert.equal(got.nodetail001.v, 4);
+    assert.equal(got.nodetail001.x, 2, 'no details: the title score stands and is marked so');
+    const again = await bg.ask('recheck', videos.slice(0, 2));
+    assert.equal(again.hits.goodbait001.v, 7);
+    assert.equal(again.hits.nodetail001.x, 2);
+    assert.equal(again.queued.length, 0);
+    await wait(400);
+    assert.equal(bg.llmCalls.length, 2, 'no new calls');
 
-    const delivered = Object.assign({}, ...tabMessages.filter((m) => m.msg.type === 'scores').map((m) => m.msg.scores));
-    assert.equal(delivered.goodbait001.v, 7);
-    assert.equal(delivered.goodbait001.x, 1);
-    assert.equal(delivered.drama000001.v, 1);
-    assert.equal(delivered.song0000001.m, 1);
-    assert.equal(delivered.solid000001.v, 6);
-    const s = core.mergeSettings(null);
-    const hidden = Object.keys(delivered).filter((id) => core.decide(delivered[id], s, { id }, core.mergeAllow(null)).hide);
-    assert.deepEqual(hidden, ['drama000001']);
-
-    const again = await ask(videos);
-    assert.equal(Object.keys(again.hits).length, 4, 'all cached');
-    await new Promise((r) => setTimeout(r, 400));
-    assert.equal(llmCalls.length, 2, 'no new calls');
-
-    listeners.message({ type: 'hidden', video: videos[0], score: delivered.drama000001 }, {}, () => {});
-    listeners.message({ type: 'shorts', count: 5 }, {}, () => {});
-    await new Promise((r) => setTimeout(r, 50));
-    assert.equal(store['ytc:log'][0].id, 'drama000001');
-    assert.equal(store['ytc:stats'].hidden, 1);
-    assert.equal(store['ytc:stats'].shorts, 5);
-    assert.equal(store['ytc:stats'].calls, 2);
+    bg.listeners.message({ type: 'hidden', video: videos[1], score: got.nodetail001, reason: 'low' }, {}, () => {});
+    bg.listeners.message({ type: 'shorts', count: 5 }, {}, () => {});
+    await wait(50);
+    assert.equal(bg.store['ytc:log'][0].id, 'nodetail001');
+    assert.equal(bg.store['ytc:log'][0].t, 'tech');
+    assert.equal(bg.store['ytc:log'][0].r, 'low');
+    assert.equal(bg.store['ytc:log'][0].x, 0, 'x: 2 is not "looked twice"');
+    assert.equal(bg.store['ytc:stats'].hidden, 1);
+    assert.equal(bg.store['ytc:stats'].shorts, 5);
+    assert.equal(bg.store['ytc:stats'].calls, 2);
   });
 
   let failed = 0;

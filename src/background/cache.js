@@ -16,7 +16,7 @@
     const out = {};
     for (const id of ids) {
       const e = got[key(id)];
-      if (e && e.g === sig) out[id] = { v: e.v, b: e.b, m: e.m, w: e.w, x: e.x };
+      if (e && e.g === sig) out[id] = { v: e.v, t: e.t, b: e.b, m: e.m, w: e.w, x: e.x };
     }
     return out;
   }

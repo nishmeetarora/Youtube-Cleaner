@@ -1,6 +1,7 @@
 // Background worker: batches videos from open YouTube tabs, scores them with the chosen model, caches and returns
-// the scores. A video whose title alone scores low gets a second look with its description, tags and chapters before
-// its score goes out, so a good video with a clickbait title isn't hidden on the title alone.
+// the scores. A tab asks for a second look (a "recheck") at a video whose title-only score lands just under the
+// viewer's IQ bar; that video is judged again with its description, tags and chapters, so a good video with a
+// clickbait title isn't hidden on the title alone.
 importScripts('../shared/core.js', 'prompt.js', 'cache.js', 'providers.js');
 
 const { STORAGE } = YTC;
@@ -11,13 +12,11 @@ const MAX_BATCH = 24;
 const BATCH_DELAY_MS = 300;
 const MAX_IN_FLIGHT = 3;
 const MAX_ATTEMPTS = 2;
-// First-pass scores below this get the second look. It sits above every strictness setting, so any video that
-// could be hidden has been judged with its description.
-const SECOND_LOOK_BELOW = 5;
 const DETAILS_TIMEOUT_MS = 8000;
 const LOG_SIZE = 300;
 
-const queue = []; // videos waiting for a batch
+const queue = []; // videos waiting for a first-pass batch
+const recheckQueue = []; // videos waiting for a second look
 const waiting = new Map(); // video id -> Set of tab ids that want its score
 const attempts = new Map(); // video id -> how many batches it has been in
 let inFlight = 0;
@@ -35,8 +34,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleScore(msg.videos || [], tabId).then(sendResponse, (e) => sendResponse({ error: e.message }));
     return true;
   }
+  if (msg.type === 'recheck') {
+    handleRecheck(msg.videos || [], tabId).then(sendResponse, (e) => sendResponse({ error: e.message }));
+    return true;
+  }
   if (msg.type === 'hidden') {
-    recordHidden(msg.video, msg.score);
+    recordHidden(msg.video, msg.score, msg.reason);
     return;
   }
   if (msg.type === 'shorts') {
@@ -100,19 +103,56 @@ async function handleScore(videos, tabId) {
   return { hits };
 }
 
-// Splits the queue into even batches: 30 waiting -> 15 + 15, not 24 + 6.
-function nextBatch() {
-  const chunks = Math.ceil(queue.length / MAX_BATCH);
-  return queue.splice(0, Math.ceil(queue.length / chunks));
+// Videos already looked at twice come straight from the cache; the rest wait for a second-look batch. A video
+// with no first-pass score in the cache (cleared meanwhile) has nothing to recheck and is dropped.
+async function handleRecheck(videos, tabId) {
+  videos = videos.map(cleanVideo).filter(Boolean);
+  const llm = await getLlm();
+  const sig = YTC.scoreSignature(llm);
+  const cached = await YTC.cache.getMany(
+    videos.map((v) => v.id),
+    sig
+  );
+  const hits = {};
+  const queued = [];
+  for (const v of videos) {
+    const sc = cached[v.id];
+    if (!sc) continue;
+    if (sc.x) {
+      hits[v.id] = sc;
+      continue;
+    }
+    if (!llm.keys[llm.provider]) continue;
+    queued.push(v.id);
+    let tabs = waiting.get(v.id);
+    if (!tabs) {
+      tabs = new Set();
+      waiting.set(v.id, tabs);
+      recheckQueue.push(Object.assign(v, { first: sc }));
+    }
+    if (tabId != null) tabs.add(tabId);
+  }
+  pump();
+  return { hits, queued };
 }
 
+// Splits a queue into even batches: 30 waiting -> 15 + 15, not 24 + 6.
+function nextBatch(q) {
+  const chunks = Math.ceil(q.length / MAX_BATCH);
+  return q.splice(0, Math.ceil(q.length / chunks));
+}
+
+// First passes go before second looks: an unjudged card is blurred, a rechecked one is only waiting to be sure.
 function flush() {
-  while (queue.length && inFlight < MAX_IN_FLIGHT) runBatch(nextBatch());
+  while (inFlight < MAX_IN_FLIGHT && (queue.length || recheckQueue.length)) {
+    if (queue.length) runBatch(nextBatch(queue));
+    else runRecheck(nextBatch(recheckQueue));
+  }
 }
 
 function pump() {
-  if (queue.length >= MAX_BATCH) flush();
-  if (queue.length && inFlight < MAX_IN_FLIGHT && !timer) {
+  if (queue.length >= MAX_BATCH || recheckQueue.length >= MAX_BATCH) flush();
+  if ((queue.length || recheckQueue.length) && inFlight < MAX_IN_FLIGHT && !timer) {
     timer = setTimeout(() => {
       timer = null;
       flush();
@@ -183,23 +223,35 @@ async function fetchDetails(ids) {
   return out;
 }
 
-// Rescores doubtful videos with their details. Without details the title-only score stands.
-async function secondLook(llm, sig, videos, firstPass) {
+// Judges videos again with their details. A video whose details couldn't be fetched keeps its title-only score,
+// marked x: 2 so nobody asks again; one the model skipped or failed on keeps it unmarked, to be tried another time.
+async function runRecheck(videos) {
+  inFlight++;
+  let llm = null;
   const final = {};
-  for (const v of videos) final[v.id] = Object.assign({}, firstPass[v.id], { x: 0 });
-  const details = await fetchDetails(videos.map((v) => v.id));
-  const withDetails = videos.filter((v) => details[v.id]).map((v) => Object.assign({}, v, { details: details[v.id] }));
-  if (withDetails.length) {
-    try {
-      const result = await scoreWithRetry(llm, withDetails);
-      for (const id in result.scores) final[id] = Object.assign({}, result.scores[id], { x: 1 });
-      await recordUsage(llm, result, 0, null);
-    } catch (e) {
-      await recordUsage(llm, null, 0, e.message);
+  for (const v of videos) final[v.id] = Object.assign({}, v.first, { x: 2 });
+  try {
+    llm = await getLlm();
+    const sig = YTC.scoreSignature(llm);
+    const details = await fetchDetails(videos.map((v) => v.id));
+    const withDetails = videos.filter((v) => details[v.id]).map((v) => Object.assign({}, v, { details: details[v.id] }));
+    if (withDetails.length) {
+      try {
+        const result = await scoreWithRetry(llm, withDetails);
+        for (const v of withDetails) final[v.id] = result.scores[v.id] ? Object.assign({}, result.scores[v.id], { x: 1 }) : Object.assign({}, v.first, { x: 0 });
+        await recordUsage(llm, result, 0, null);
+      } catch (e) {
+        for (const v of withDetails) final[v.id].x = 0;
+        await recordUsage(llm, null, 0, e.message);
+      }
     }
-  }
-  await YTC.cache.setMany(final, sig);
+    const keep = {};
+    for (const id in final) if (final[id].x) keep[id] = final[id];
+    await YTC.cache.setMany(keep, sig);
+  } catch (_) {}
   deliver(final);
+  inFlight--;
+  pump();
 }
 
 async function runBatch(videos) {
@@ -210,15 +262,10 @@ async function runBatch(videos) {
     const sig = YTC.scoreSignature(llm);
     for (const v of videos) attempts.set(v.id, (attempts.get(v.id) || 0) + 1);
     const result = await scoreWithRetry(llm, videos);
-    const doubtful = videos.filter((v) => {
-      const s = result.scores[v.id];
-      return s && !s.m && s.v < SECOND_LOOK_BELOW;
-    });
-    const doubtIds = new Set(doubtful.map((v) => v.id));
-    const sure = {};
-    for (const id in result.scores) if (!doubtIds.has(id)) sure[id] = result.scores[id];
-    await YTC.cache.setMany(sure, sig);
-    deliver(sure);
+    const scores = {};
+    for (const id in result.scores) scores[id] = Object.assign({}, result.scores[id], { x: 0 });
+    await YTC.cache.setMany(scores, sig);
+    deliver(scores);
     // The model occasionally skips an entry; give those one more try in a later batch.
     const missing = videos.filter((v) => !result.scores[v.id]);
     const retry = missing.filter((v) => (attempts.get(v.id) || 0) < MAX_ATTEMPTS);
@@ -226,7 +273,6 @@ async function runBatch(videos) {
     queue.push(...retry);
     if (giveUp.length) fail(giveUp.map((v) => v.id), null);
     await recordUsage(llm, result, videos.length - missing.length, null);
-    if (doubtful.length) await secondLook(llm, sig, doubtful, result.scores);
   } catch (e) {
     fail(
       videos.map((v) => v.id),
@@ -280,7 +326,7 @@ function recordUsage(llm, result, scored, error) {
   });
 }
 
-function recordHidden(video, score) {
+function recordHidden(video, score, reason) {
   video = cleanVideo(video);
   if (!video || !score) return;
   return locked(async () => {
@@ -293,8 +339,10 @@ function recordHidden(video, score) {
       channel: video.channel,
       duration: video.duration,
       v: YTC.clampInt(score.v, 0, 10),
+      t: YTC.TOPIC_KEYS.includes(score.t) ? score.t : 'other',
+      r: reason === 'topic' ? 'topic' : 'low',
       w: str(score.w, 80),
-      x: score.x ? 1 : 0,
+      x: score.x === 1 ? 1 : 0,
       at: Date.now(),
     });
     stats.hidden++;

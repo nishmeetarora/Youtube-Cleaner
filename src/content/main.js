@@ -1,8 +1,10 @@
 // Content script: judges the video cards on screen and runs the control panel in YouTube's menu.
 // The hook sends the videos in each feed; this asks the background for their scores and marks every card: blurred
-// while it's judged (by CSS, until marked), shown, or hidden with display: none so the grid closes up. Hiding happens
-// here rather than in YouTube's data, so the panel's slider takes effect instantly in both directions.
-// It also fetches details for the background's second look, because YouTube only answers those from its own origin.
+// while it's judged (by CSS, until marked), shown with its IQ on the thumbnail, or hidden with display: none so the
+// grid closes up. Hiding happens here rather than in YouTube's data, so the IQ slider and the topic chips take effect
+// instantly in both directions.
+// A video judged on its title alone that lands just under the bar is sent back for a second look with its
+// description before it's hidden. This script fetches those details too, since YouTube only answers its own origin.
 (function () {
   'use strict';
   const YTC = globalThis.YTC;
@@ -13,6 +15,8 @@
   const PENDING_TIMEOUT = 15000; // stop waiting for a score; the card shows unjudged
   const REVEAL_WAIT_MS = 4000; // an undecided card holds back the cards after it for at most this long
   const LOG_DELAY = 3000; // hidden videos are logged once the settings have stayed put this long
+  const RECHECK_TIMEOUT = 12000; // stop waiting for a second look; the title-only score stands
+  const DRAG_SETTLE_MS = 500; // second looks for videos the slider pushed under the bar wait until it rests
   const ID = /^[\w-]{11}$/;
   const FALLBACK_CLIENT = '2.20251030.01.00';
 
@@ -38,12 +42,16 @@
   const requested = new Map(); // id -> when its score was asked for
   const failed = new Set();
   const firstSeen = new Map(); // id -> when a card for it first appeared
+  const shown = new Set(); // ids whose card has been revealed or hidden at least once on this page
+  const rechecks = new Map(); // id -> { at, done } for second looks asked for
+  const wantRecheck = new Set(); // ids to ask a second look for once the slider rests
+  let dragging = false;
   const logged = new Set();
   const toLog = new Set();
   let pageStats = emptyStats(null);
 
   function emptyStats(surface) {
-    return { surface, active: false, hasKey, judged: 0, hidden: 0, pending: 0, dist: new Array(6).fill(0), hiddenList: [], error: llmError };
+    return { surface, active: false, hasKey, judged: 0, hidden: 0, pending: 0, dist: new Array(YTC.MAX_SCORE + 1).fill(0), hiddenList: [], error: llmError };
   }
 
   function contextAlive() {
@@ -79,7 +87,7 @@
 
   function pushConfig() {
     const blur = settings.blurPending ? Object.keys(CARDS).filter(active) : [];
-    const config = { enabled: settings.enabled, hideShorts: settings.hideShorts, surfaces: settings.surfaces, blur };
+    const config = { enabled: settings.enabled, hideShorts: settings.hideShorts, surfaces: settings.surfaces, blur, menu: !!settings.takeOverMenu };
     try {
       localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
     } catch (_) {}
@@ -89,6 +97,7 @@
     html.toggleAttribute('data-ytc-shorts', !!settings.hideShorts);
     if (blur.length) html.setAttribute('data-ytc-blur', blur.join(' '));
     else html.removeAttribute('data-ytc-blur');
+    html.toggleAttribute('data-ytc-menu', !!settings.takeOverMenu);
   }
 
   const str = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -123,6 +132,8 @@
       if (!map[id]) continue;
       scores.set(id, map[id]);
       failed.delete(id);
+      const r = rechecks.get(id);
+      if (r) r.done = true;
       changed = true;
     }
     if (changed) {
@@ -132,9 +143,42 @@
   }
 
   function markFailed(ids, error) {
-    for (const id of ids) if (!scores.has(id)) failed.add(id);
+    for (const id of ids) {
+      if (!scores.has(id)) failed.add(id);
+      const r = rechecks.get(id);
+      if (r) r.done = true;
+    }
     if (error) llmError = error;
     scheduleDom(0);
+  }
+
+  // Second looks for videos just under the bar. The background answers at once for videos it already looked at.
+  function requestRechecks() {
+    if (dragging || !wantRecheck.size) return;
+    const now = Date.now();
+    const list = [];
+    for (const id of wantRecheck) {
+      if (rechecks.has(id)) continue;
+      const v = videos.get(id);
+      rechecks.set(id, { at: now, done: !v });
+      if (v) list.push(v);
+    }
+    wantRecheck.clear();
+    if (!list.length) return;
+    const finish = (ids) => {
+      for (const id of ids) {
+        const r = rechecks.get(id);
+        if (r) r.done = true;
+      }
+      scheduleDom(0);
+    };
+    send({ type: 'recheck', videos: list.slice(0, 120) })
+      .then((res) => {
+        if (res?.hits) applyScores(res.hits);
+        const queued = new Set(res?.queued || []);
+        finish(list.map((v) => v.id).filter((id) => !queued.has(id) && !res?.hits?.[id]));
+      })
+      .catch(() => finish(list.map((v) => v.id)));
   }
 
   function onVideos(m) {
@@ -165,10 +209,24 @@
   }
 
   // 'ok', 'hidden', 'pending', or 'unasked' for a video whose score nobody has asked for yet.
+  // A video waiting for its second look stays blurred if it hasn't been seen yet; one the slider just pushed under
+  // the bar is hidden meanwhile, and comes back if the second look lifts it.
   function verdict(id, now) {
     if (!id) return 'ok';
     const sc = scores.get(id);
-    if (sc) return YTC.decide(sc, settings, videos.get(id), allow).hide ? 'hidden' : 'ok';
+    if (sc) {
+      const d = YTC.decide(sc, settings, videos.get(id), allow);
+      if (!d.hide) return 'ok';
+      if (d.reason === 'low' && YTC.wantsSecondLook(sc, settings)) {
+        const r = rechecks.get(id);
+        if (!r) {
+          wantRecheck.add(id);
+          return shown.has(id) ? 'hidden' : 'pending';
+        }
+        if (!r.done && now - r.at < RECHECK_TIMEOUT) return shown.has(id) ? 'hidden' : 'pending';
+      }
+      return 'hidden';
+    }
     if (failed.has(id)) return 'ok';
     const asked = requested.get(id);
     if (asked) {
@@ -181,16 +239,33 @@
     return 'unasked';
   }
 
-  function mark(card, state) {
+  function mark(card, state, sc) {
     const ok = state !== 'hidden' && state !== 'pending';
     const hidden = state === 'hidden';
     if (card.hasAttribute('data-ytc-ok') !== ok) card.toggleAttribute('data-ytc-ok', ok);
     if (card.hasAttribute('data-ytc-hidden') !== hidden) card.toggleAttribute('data-ytc-hidden', hidden);
+    badge(card, state === 'ok' && settings.showBadges ? sc : null);
+  }
+
+  // The IQ in the thumbnail's top-right corner: a CSS variable on the card that content.css draws on the thumbnail,
+  // so nothing is added to YouTube's own markup. Only written when it changes.
+  function badge(card, sc) {
+    const text = !sc ? '' : sc.m && settings.allowMusic ? '♪' : `IQ ${YTC.iqOf(sc.v)}`;
+    if (card.__ytcBadge === text) return;
+    card.__ytcBadge = text;
+    if (!text) {
+      card.style.removeProperty('--ytc-iq');
+      card.removeAttribute('data-ytc-badge');
+      return;
+    }
+    card.style.setProperty('--ytc-iq', JSON.stringify(text));
+    card.setAttribute('data-ytc-badge', text === '♪' ? 'music' : sc.v >= 7 ? 'high' : sc.v >= 5 ? 'mid' : 'low');
   }
 
   let recheckTimer = null;
   function domPass() {
     const now = Date.now();
+    wantRecheck.clear(); // refilled by this pass, so a slider that moved back leaves nothing stale
     const here = YTC.surfaceOf(location.pathname);
     const stats = emptyStats(here);
     stats.active = active(here);
@@ -220,24 +295,29 @@
           }
         }
         if (state === 'pending') waiting = true;
-        mark(card, blocked && state === 'ok' && settings.blurPending ? 'pending' : state);
+        const sc = id ? scores.get(id) : null;
+        const final = blocked && state === 'ok' && settings.blurPending ? 'pending' : state;
+        mark(card, final, sc);
+        if (id && (final === 'ok' || final === 'hidden')) shown.add(id);
         if (state === 'pending' && now - (firstSeen.get(id) || now) < REVEAL_WAIT_MS) blocked = true;
         if (state === 'hidden') toLog.add(id);
         if (surface !== here || !on || !id || counted.has(id)) continue;
         counted.add(id);
-        const sc = scores.get(id);
         if (state === 'pending') stats.pending++;
         if (!sc) continue;
         stats.judged++;
-        if (!(sc.m && settings.allowMusic)) stats.dist[Math.min(sc.v, 5)]++;
+        const d = YTC.decide(sc, settings, videos.get(id), allow);
+        // The histogram shows what the slider acts on: music and topics marked "less" are left out.
+        if (!(sc.m && settings.allowMusic) && d.reason !== 'topic') stats.dist[YTC.clampInt(sc.v, 0, YTC.MAX_SCORE)]++;
         if (state === 'hidden') {
           stats.hidden++;
           const v = videos.get(id) || {};
-          stats.hiddenList.push({ id, title: v.title, channel: v.channel, v: sc.v, why: sc.w });
+          stats.hiddenList.push({ id, title: v.title, channel: v.channel, v: sc.v, t: sc.t, why: sc.w, reason: d.reason });
         }
       }
     }
     if (fromCards.length) request(fromCards);
+    requestRechecks();
     pageStats = stats;
     panel.ensure();
     panel.renderStats();
@@ -263,9 +343,11 @@
   function shutDown() {
     observer?.disconnect();
     document.documentElement?.removeAttribute('data-ytc-blur');
-    for (const card of document.querySelectorAll('[data-ytc-ok], [data-ytc-hidden]')) {
+    document.documentElement?.removeAttribute('data-ytc-menu');
+    for (const card of document.querySelectorAll('[data-ytc-ok], [data-ytc-hidden], [data-ytc-badge]')) {
       card.removeAttribute('data-ytc-ok');
       card.removeAttribute('data-ytc-hidden');
+      badge(card, null);
     }
     panel.el.remove();
   }
@@ -284,7 +366,8 @@
         if (logged.has(id) || verdict(id, now) !== 'hidden') continue;
         logged.add(id);
         const v = videos.get(id);
-        if (v) send({ type: 'hidden', video: v, score: scores.get(id) }).catch(() => {});
+        const sc = scores.get(id);
+        if (v) send({ type: 'hidden', video: v, score: sc, reason: YTC.decide(sc, settings, v, allow).reason }).catch(() => {});
       }
       toLog.clear();
     }, LOG_DELAY);
@@ -345,11 +428,15 @@
 
   // ---------------- Settings and the panel ----------------
 
+  // Settings the page hook mirrors; the slider and the topics don't touch them, so a drag stays cheap.
+  const CONFIG_KEYS = ['enabled', 'hideShorts', 'surfaces', 'blurPending', 'takeOverMenu'];
+
   let saveTimer = null;
   function update(patch) {
+    const before = settings;
     settings = YTC.mergeSettings(Object.assign({}, settings, patch));
     lastLocalUpdate = Date.now();
-    pushConfig();
+    if (CONFIG_KEYS.some((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k]))) pushConfig();
     panel.render();
     scheduleDom(0);
     if (logTimer) scheduleLog(true);
@@ -366,8 +453,23 @@
     scheduleDom(0);
   }
 
+  // The panel reports a slider drag; second looks for what it pushes under the bar wait until it rests.
+  let dragTimer = null;
+  function setDragging(on) {
+    clearTimeout(dragTimer);
+    if (on) {
+      dragging = true;
+      dragTimer = setTimeout(() => setDragging(false), DRAG_SETTLE_MS);
+      return;
+    }
+    if (!dragging) return;
+    dragging = false;
+    scheduleDom(0);
+  }
+
   const panel = YTC.createPanel({
     getSettings: () => settings,
+    setDragging,
     getPageStats: () => Object.assign({}, pageStats, { hasKey, error: llmError }),
     getStatus: () => status,
     update,

@@ -3,24 +3,70 @@
 (function (root) {
   'use strict';
 
-  // Hide a video when its signal score is below the threshold. Scores are 0-10; see prompt.js for the bands.
-  const STRICTNESS = [
-    { min: 1, short: 'Worst only', label: 'Only the worst', blurb: 'Blatant slop: drama, reaction, pranks, content farms' },
-    { min: 2, short: 'Slop', label: 'Slop', blurb: 'All slop, including hype and clip farms' },
-    { min: 3, short: 'Slop + bait', label: 'Slop, bait and empty entertainment', blurb: 'Also clickbait with little in it, and highlights, episodes and playthroughs with nothing to learn (recommended)' },
-    { min: 4, short: 'Strict', label: 'Strict', blurb: 'Also light videos: real but thin' },
-    { min: 5, short: 'Very strict', label: 'Very strict', blurb: 'Only solid explanation, analysis and craft get through' },
+  // The model gives each video a depth score from 0 to 10 (see prompt.js). The panel shows it as an IQ, the same
+  // relabel X IQ Slider uses: 0 -> 70, 10 -> 150.
+  const MAX_SCORE = 10;
+  function iqOf(score) {
+    return 70 + 8 * score;
+  }
+
+  // What the slider keeps at each setting: videos scoring at least `min` stay.
+  const LEVELS = [
+    { min: 0, blurb: 'Everything shows. No IQ filter' },
+    { min: 1, blurb: 'Hides only the worst slop' },
+    { min: 2, blurb: 'Hides slop: drama, reactions, pranks, content farms' },
+    { min: 3, blurb: 'Also hides empty entertainment: highlights, playthroughs, vlogs' },
+    { min: 4, blurb: 'Also hides commentary and light videos: sports talk, reviews, listicles' },
+    { min: 5, blurb: 'Also hides popular stories: company sagas, scandals, true crime' },
+    { min: 6, blurb: 'Ideas and depth: philosophy, science, essays that build an argument' },
+    { min: 7, blurb: 'Deeper ideas and careful analysis only' },
+    { min: 8, blurb: 'Deep only: expert lectures, rigorous conversations, technical deep dives' },
+    { min: 9, blurb: 'Exceptional only: dense, original, worth taking notes on' },
+    { min: 10, blurb: 'Only the very best' },
   ];
 
-  const SETTINGS_VERSION = 1;
+  // Topics the model picks one of for every video. `hint` goes into the prompt and the chip's tooltip.
+  const TOPICS = [
+    { key: 'science', label: 'Science', icon: '🔬', hint: 'natural sciences, space, maths, engineering, research' },
+    { key: 'tech', label: 'Tech', icon: '💻', hint: 'gadgets, hardware, software products, the internet, the tech industry' },
+    { key: 'ai', label: 'AI', icon: '🤖', hint: 'AI, machine learning, LLMs and AI products' },
+    { key: 'programming', label: 'Coding', icon: '⌨️', hint: 'programming, software engineering, computer science' },
+    { key: 'business', label: 'Business', icon: '📈', hint: 'startups, companies, markets, economics, investing, careers, personal finance' },
+    { key: 'history', label: 'History', icon: '📜', hint: 'historical events, people, wars and civilizations' },
+    { key: 'ideas', label: 'Ideas', icon: '💡', hint: 'philosophy, psychology, religion, ethics, big ideas, essays on society and culture' },
+    { key: 'health', label: 'Health', icon: '🩺', hint: 'medicine, fitness, nutrition, sleep, mental health' },
+    { key: 'politics', label: 'Politics', icon: '🏛️', hint: 'elections, policy, government, geopolitics, war, political commentary' },
+    { key: 'news', label: 'News', icon: '📰', hint: 'current events and news reports that fit no other topic' },
+    { key: 'arts', label: 'Arts & film', icon: '🎬', hint: 'film, TV, books, art, design, architecture, the craft and analysis of music' },
+    { key: 'music', label: 'Music', icon: '🎵', hint: 'songs, music videos, live sets, mixes, background music' },
+    { key: 'sports', label: 'Sports', icon: '⚽', hint: 'sport, matches, athletes, sports analysis' },
+    { key: 'gaming', label: 'Gaming', icon: '🎮', hint: 'video games, playthroughs, esports, game analysis' },
+    { key: 'comedy', label: 'Comedy', icon: '😂', hint: 'sketches, stand-up, parody, memes, funny compilations' },
+    { key: 'lifestyle', label: 'Lifestyle', icon: '🌿', hint: 'food, cooking, travel, fashion, home, relationships, vlogs' },
+    { key: 'drama', label: 'Drama', icon: '🍿', hint: 'celebrity and influencer gossip, feuds, drama and reaction videos' },
+    { key: 'selfhelp', label: 'Self-help', icon: '🧭', hint: 'productivity, motivation, life advice, mindset' },
+    { key: 'howto', label: 'How-to', icon: '🛠️', hint: 'tutorials and DIY outside coding: repairs, crafts, tools, practical skills' },
+    { key: 'other', label: 'Other', icon: '💬', hint: 'anything else' },
+  ];
+  const TOPIC_KEYS = TOPICS.map((t) => t.key);
+  // Topics marked "more" get a bar this many points lower (16 IQ). Topics marked "less" are always hidden.
+  const MORE_EASE = 2;
+  // A video scoring this close under its bar, on its title alone, gets a second look with its description.
+  const SECOND_LOOK_RANGE = 3;
+
+  const SETTINGS_VERSION = 2;
   const DEFAULT_SETTINGS = {
     v: SETTINGS_VERSION,
     enabled: true,
     hideShorts: true,
-    minSignal: 3,
+    minScore: 5, // the slider: videos scoring below this are hidden (IQ 110)
+    topics: { drama: 'less' }, // topic key -> 'more' | 'less' | 'neutral'
     allowMusic: true,
     blurPending: true, // blur cards until they're judged
+    showBadges: true, // IQ on each thumbnail
+    takeOverMenu: true, // the panel gets YouTube's whole left menu, wider, with the sections below it hidden
     panelCollapsed: false,
+    optionsOpen: false,
     surfaces: { home: true, watch: true, search: false },
   };
 
@@ -67,7 +113,7 @@
   };
 
   // Bump when the scoring prompt or score format changes so cached scores get redone.
-  const PROMPT_VERSION = 2;
+  const PROMPT_VERSION = 4;
 
   const STORAGE = {
     settings: 'ytc:settings',
@@ -97,11 +143,20 @@
     return hash([PROMPT_VERSION, provider, llm.models?.[provider] || ''].join('|'));
   }
 
+  const PREFS = ['more', 'less', 'neutral'];
+
   function mergeSettings(stored) {
     stored = stored || {};
     const s = Object.assign({}, DEFAULT_SETTINGS, stored);
     s.surfaces = Object.assign({}, DEFAULT_SETTINGS.surfaces, stored.surfaces || {});
-    s.minSignal = clampInt(s.minSignal, STRICTNESS[0].min, STRICTNESS[STRICTNESS.length - 1].min);
+    // Stored choices (an explicit "neutral" included) win over the defaults.
+    const topics = Object.assign({}, DEFAULT_SETTINGS.topics, stored.topics || {});
+    s.topics = {};
+    for (const k of TOPIC_KEYS) if (PREFS.includes(topics[k])) s.topics[k] = topics[k];
+    // v1 had a 1-5 strictness that meant something else; start the IQ slider from its default.
+    if (!stored.v || stored.v < 2) s.minScore = DEFAULT_SETTINGS.minScore;
+    delete s.minSignal;
+    s.minScore = clampInt(s.minScore, 0, MAX_SCORE);
     s.v = SETTINGS_VERSION;
     return s;
   }
@@ -118,18 +173,39 @@
     return { videos: Object.assign({}, stored?.videos), channels: Object.assign({}, stored?.channels) };
   }
 
-  function strictnessOf(min) {
-    return STRICTNESS.find((s) => s.min === min) || STRICTNESS[2];
+  function levelOf(min) {
+    return LEVELS[clampInt(min, 0, MAX_SCORE)];
   }
 
-  // score: { v: signal 0-10, b: bait 0-10, m: music 0/1, w: why, x: 1 when it had a second look with details }
-  // returns { hide, reason: 'low' | null }
+  function topicOf(key) {
+    return TOPICS.find((t) => t.key === key) || TOPICS[TOPICS.length - 1];
+  }
+
+  function prefOf(settings, topic) {
+    return settings.topics?.[topic] || 'neutral';
+  }
+
+  // The lowest score a video on this topic needs to stay.
+  function barFor(score, settings) {
+    return Math.max(0, settings.minScore - (prefOf(settings, score?.t) === 'more' ? MORE_EASE : 0));
+  }
+
+  // score: { v: depth 0-10, t: topic, b: bait 0-10, m: music 0/1, w: why, x: 0 title only | 1 looked twice | 2 no details }
+  // returns { hide, reason: 'topic' | 'low' | null }
   function decide(score, settings, video, allow) {
     if (!score) return { hide: false, reason: null };
     if (allow && (allow.videos[video?.id] || (video?.channel && allow.channels[video.channel]))) return { hide: false, reason: null };
+    if (prefOf(settings, score.t) === 'less') return { hide: true, reason: 'topic' };
     if (score.m && settings.allowMusic) return { hide: false, reason: null };
-    if (score.v < settings.minSignal) return { hide: true, reason: 'low' };
+    if (score.v < barFor(score, settings)) return { hide: true, reason: 'low' };
     return { hide: false, reason: null };
+  }
+
+  // Judged on its title alone and only just under the bar: worth reading the description before hiding it.
+  function wantsSecondLook(score, settings) {
+    if (!score || score.x || score.m) return false;
+    const bar = barFor(score, settings);
+    return score.v < bar && score.v >= bar - SECOND_LOOK_RANGE;
   }
 
   // Which feed a page is, for the per-surface switches. Anything else (subscriptions, channels, playlists) is never filtered.
@@ -141,20 +217,30 @@
   }
 
   const api = {
-    STRICTNESS,
+    MAX_SCORE,
+    LEVELS,
+    TOPICS,
+    TOPIC_KEYS,
+    MORE_EASE,
+    SECOND_LOOK_RANGE,
     DEFAULT_SETTINGS,
     PROVIDERS,
     DEFAULT_LLM,
     PROMPT_VERSION,
     STORAGE,
+    iqOf,
     clampInt,
     hash,
     scoreSignature,
     mergeSettings,
     mergeLlm,
     mergeAllow,
-    strictnessOf,
+    levelOf,
+    topicOf,
+    prefOf,
+    barFor,
     decide,
+    wantsSecondLook,
     surfaceOf,
   };
 

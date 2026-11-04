@@ -54,6 +54,59 @@
   }
 }
 
+/* The video's IQ in the thumbnail's top-right corner. The content script puts the text in --ytc-iq on the card and
+   data-ytc-badge (low, mid, high or music) on it; the thumbnail draws it, so no element is added to YouTube's markup.
+   It fades on hover, where YouTube puts its own preview controls. */
+[data-ytc-badge] :is(yt-thumbnail-view-model, ytd-thumbnail)::after {
+  content: var(--ytc-iq);
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(15, 15, 15, 0.78);
+  color: #fff;
+  font: 600 12px/16px Roboto, Arial, sans-serif;
+  letter-spacing: 0.2px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+[data-ytc-badge="high"] :is(yt-thumbnail-view-model, ytd-thumbnail)::after {
+  background: rgba(6, 95, 212, 0.92);
+}
+[data-ytc-badge="low"] :is(yt-thumbnail-view-model, ytd-thumbnail)::after {
+  background: rgba(15, 15, 15, 0.6);
+  color: rgba(255, 255, 255, 0.85);
+}
+[data-ytc-badge]:hover :is(yt-thumbnail-view-model, ytd-thumbnail)::after {
+  opacity: 0;
+}
+/* Up next has small thumbnails. */
+ytd-watch-next-secondary-results-renderer [data-ytc-badge] :is(yt-thumbnail-view-model, ytd-thumbnail)::after {
+  top: 4px;
+  right: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+/* The panel takes over YouTube's left menu: the menu gets wider (the page moves over with it) and every section below
+   the panel, plus the footer, is hidden. Home stays above it. html[data-ytc-menu] is set before the first paint. */
+html[data-ytc-menu] ytd-app {
+  --ytd-persistent-guide-width: 300px !important;
+  --app-drawer-width: 300px !important;
+}
+html[data-ytc-menu] tp-yt-app-drawer#guide {
+  --app-drawer-width: 300px !important;
+}
+html[data-ytc-menu] ytd-guide-renderer #sections > ytc-panel ~ *,
+html[data-ytc-menu] ytd-guide-renderer #footer {
+  display: none !important;
+}
+
 /* Shorts the page hook couldn't drop from the data (html[data-ytc-shorts] is set while "Hide Shorts" is on). */
 html[data-ytc-shorts] ytd-reel-shelf-renderer,
 html[data-ytc-shorts] ytd-rich-shelf-renderer[is-shorts],

@@ -11,7 +11,9 @@
       html[dark] { --bg: #0f0f0f; --fg: #f1f1f1; --muted: #aaa; --hover: rgba(255, 255, 255, 0.1); --line: rgba(255, 255, 255, 0.2); }
       body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/20px Roboto, Arial, sans-serif; }
       ytd-app { display: flex; }
-      #guide-inner-content { width: 240px; flex: none; height: 100vh; overflow-y: auto; position: sticky; top: 0; }
+      ytd-app { --app-drawer-width: 240px; }
+      #guide-inner-content { width: var(--app-drawer-width); flex: none; height: 100vh; overflow-y: auto; position: sticky; top: 0; }
+      #footer { padding: 12px 24px; color: var(--muted); font-size: 12px; }
       ytd-guide-renderer, ytd-guide-section-renderer, ytd-browse, ytd-rich-item-renderer { display: block; }
       ytd-guide-section-renderer { padding: 12px 0; border-bottom: 1px solid var(--line); margin: 0 12px; }
       ytd-guide-section-renderer h3 { margin: 6px 12px; font-size: 16px; font-weight: 600; }
@@ -48,7 +50,13 @@
               <div class="entry"><i></i>History</div>
               <div class="entry"><i></i>Watch later</div>
             </ytd-guide-section-renderer>
+            <ytd-guide-section-renderer>
+              <h3>Explore</h3>
+              <div class="entry"><i></i>Music</div>
+              <div class="entry"><i></i>Gaming</div>
+            </ytd-guide-section-renderer>
           </div>
+          <div id="footer">About Press Copyright Contact us Creators Advertise Developers</div>
         </ytd-guide-renderer>
       </div>
       <ytd-browse page-subtype="home">

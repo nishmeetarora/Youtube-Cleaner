@@ -169,17 +169,22 @@
   const ORIGIN = location.origin;
   // The content script mirrors its settings here so they are readable before it has loaded.
   const CONFIG_KEY = 'ytc-config';
-  let config = { enabled: true, hideShorts: true, surfaces: { home: true, watch: true, search: false }, blur: [] };
+  let config = { enabled: true, hideShorts: true, surfaces: { home: true, watch: true, search: false }, blur: [], menu: true };
   try {
     const saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || 'null');
     if (saved && typeof saved === 'object') config = Object.assign(config, saved);
   } catch (_) {}
 
-  // Feeds whose cards stay blurred until judged; content.css keys off this attribute.
+  // Feeds whose cards stay blurred until judged, and whether the panel takes over YouTube's menu; content.css keys
+  // off these attributes, so they're set before the first paint.
   function applyBlur() {
+    const html = document.documentElement;
+    if (!html) return;
     const blur = Array.isArray(config.blur) ? config.blur.join(' ') : '';
-    if (blur) document.documentElement?.setAttribute('data-ytc-blur', blur);
-    else document.documentElement?.removeAttribute('data-ytc-blur');
+    if (blur) html.setAttribute('data-ytc-blur', blur);
+    else html.removeAttribute('data-ytc-blur');
+    if (config.menu) html.setAttribute('data-ytc-menu', '');
+    else html.removeAttribute('data-ytc-menu');
   }
   applyBlur();
 

@@ -8,6 +8,11 @@
   --accent: #d6002f;
   --danger: #f4212e;
   --ok: #00ba7c;
+  --more: #065fd4;
+  --more-bg: rgba(6, 95, 212, 0.1);
+  --more-line: rgba(6, 95, 212, 0.45);
+  --less-bg: rgba(214, 0, 47, 0.07);
+  --less-line: rgba(214, 0, 47, 0.4);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -19,6 +24,11 @@
     --border: #303030;
     --raised: #212121;
     --accent: #ff4e6a;
+    --more: #3ea6ff;
+    --more-bg: rgba(62, 166, 255, 0.14);
+    --more-line: rgba(62, 166, 255, 0.5);
+    --less-bg: rgba(255, 78, 106, 0.1);
+    --less-line: rgba(255, 78, 106, 0.45);
     color-scheme: dark;
   }
 }
@@ -308,7 +318,64 @@ h2 + .option {
   accent-color: var(--accent);
   flex: none;
 }
-.strictness-label {
+.iq-label {
+  font-weight: 700;
+  color: var(--accent);
+}
+.topics-option > div {
+  width: 100%;
+}
+.topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.chip {
+  font: inherit;
+  font-size: 13px;
+  line-height: 16px;
+  padding: 5px 11px 5px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip .ic {
+  margin-right: 4px;
+}
+.chip:hover {
+  background: var(--raised);
+}
+.chip[data-pref="more"] {
+  border-color: var(--more-line);
+  background: var(--more-bg);
+  color: var(--more);
+  font-weight: 700;
+}
+.chip[data-pref="more"] .lbl::after {
+  content: " +";
+}
+.chip[data-pref="less"] {
+  border-color: var(--less-line);
+  background: var(--less-bg);
+  color: var(--accent);
+}
+.chip[data-pref="less"] .lbl {
+  text-decoration: line-through;
+}
+.chip[data-pref="less"] .ic {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+.more-word {
+  color: var(--more);
+  font-weight: 700;
+}
+.less-word {
+  color: var(--accent);
   font-weight: 700;
 }
 .where {
@@ -344,7 +411,7 @@ h2 + .option {
 }
 .log .score {
   flex: none;
-  width: 34px;
+  width: 40px;
   text-align: center;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
